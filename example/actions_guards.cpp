@@ -39,7 +39,7 @@ struct actions_guards {
     auto action1 = [](auto e) { std::cout << "action1: " << typeid(e).name() << std::endl; };
 
     struct action2 {
-      void operator()([[maybe_unused]] int i) {
+      void operator()(int i) {
         assert(42 == i);
         std::cout << "action2" << std::endl;
       }

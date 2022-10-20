@@ -6,57 +6,43 @@ on:
 
 jobs:
   build:
-    name: ${{ matrix.config.name }}
-    runs-on: ${{ matrix.config.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        config:
-        - {
-            name: "windows MinGW",
-            os: windows-latest,
-            build_type: "Debug",
-            cxx: "g++",
-            generators: "Ninja"
-          }
-        - {
-            name: "windows MSVC",
-            os: windows-latest,
-            build_type: "Debug",
-            cxx: "cl",
-            generators: "Ninja"
-          }
-        - {
-            name: "ubuntu g++",
-            os: ubuntu-latest,
-            build_type: "Debug",
-            cxx: "g++",
-            generators: "Ninja"
-          }
-        - {
-            name: "macos clang++",
-            os: macos-latest,
-            build_type: "Debug",
-            cxx: "clang++",
-            generators: "Ninja"
-          }
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        cxx: [clang++, g++, cl]
+        std: [14, 17, 20]
+        build_type: [Debug]
+        generators: [Ninja]
+        exclude:
+          - os: windows-latest
+            cxx: clang++
+          - os: ubuntu-latest
+            cxx: clang++
+          - os: ubuntu-latest
+            cxx: cl
+          - os: macos-latest
+            cxx: g++
+          - os: macos-latest
+            cxx: cl
 
     steps:
       - uses: actions/checkout@v2
 
       - name: Add msbuild to PATH env
-        if: matrix.config.name == 'windows MSVC'
+        if: startsWith(matrix.os, 'windows') && matrix.cxx == 'cl'
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install dependencies on windows
-        if: startsWith(matrix.config.os, 'windows')
+        if: startsWith(matrix.os, 'windows')
         run: |
           choco install ninja cmake
           ninja --version
           cmake --version
 
       - name: Install dependencies on ubuntu
-        if: startsWith(matrix.config.name, 'ubuntu')
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install ninja-build cmake
@@ -65,7 +51,7 @@ jobs:
           gcc --version
 
       - name: Install dependencies on macos
-        if: startsWith(matrix.config.os, 'macos')
+        if: startsWith(matrix.os, 'macos')
         run: |
           brew install cmake ninja
           ninja --version
@@ -78,15 +64,16 @@ jobs:
           cmake \
             -S . \
             -B . \
-            -DCMAKE_BUILD_TYPE=${{ matrix.config.build_type }} \
-            -DCMAKE_CXX_COMPILER=${{ matrix.config.cxx }} \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_CXX_STANDARD:STRING=${{ matrix.std }} \
             -DSML_BUILD_EXAMPLES=ON \
             -DSML_BUILD_TESTS=ON \
-            -G "${{ matrix.config.generators }}"
+            -G "${{ matrix.generators }}"
 
       - name: Build
         shell: bash
-        run: cmake --build . --config ${{ matrix.config.build_type }}
+        run: cmake --build . --config ${{ matrix.build_type }}
 
       - name: Test
         shell: bash
