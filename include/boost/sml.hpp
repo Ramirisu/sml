@@ -230,6 +230,26 @@ struct remove_reference<T &&> {
 };
 template <class T>
 using remove_reference_t = typename remove_reference<T>::type;
+template <class T>
+using remove_cref_t = remove_const_t<remove_reference_t<T>>;
+template <class T>
+struct add_lvalue_reference {
+  using type = T &;
+};
+template <>
+struct add_lvalue_reference<void> {
+  using type = void;
+};
+template <class T>
+using add_lvalue_reference_t = typename add_lvalue_reference<T>::type;
+template <template <class...> class F, class T>
+struct transform;
+template <template <class...> class F, template <class...> class T, class... Args>
+struct transform<F, T<Args...>> {
+  using type = T<F<Args>...>;
+};
+template <template <class...> class F, class T>
+using transform_t = typename transform<F, T>::type;
 }  // namespace aux
 namespace aux {
 using swallow = int[];
@@ -377,7 +397,8 @@ struct missing_ctor_parameter {
     return {};
   }
 #if !(defined(_MSC_VER) && !defined(__clang__))
-  template <class TMissing, __BOOST_SML_REQUIRES(!aux::is_base_of<pool_type_base, TMissing>::value)>
+  template <class TMissing,
+            __BOOST_SML_REQUIRES(!aux::is_base_of<pool_type_base, TMissing>::value && !aux::is_constructible<TMissing>::value)>
   operator TMissing &() const {
     static_assert(missing_ctor_parameter<TMissing>::value,
                   "State Machine is missing a constructor parameter! Check out the `missing_ctor_parameter` error to see the "
@@ -401,13 +422,26 @@ template <class T>
 T &try_get(const pool_type<T &> *object) {
   return object->value;
 }
-template <class T, class TPool>
+template <class T, class TPool,
+          __BOOST_SML_REQUIRES(aux::is_base_of<pool_type<aux::add_lvalue_reference_t<aux::remove_cref_t<T>>>, TPool>::value)>
 T &get(TPool &p) {
-  return static_cast<pool_type<T> &>(p).value;
+  return static_cast<pool_type<aux::add_lvalue_reference_t<aux::remove_cref_t<T>>> &>(p).value;
 }
-template <class T, class TPool>
+template <class T, class TPool,
+          __BOOST_SML_REQUIRES(!aux::is_base_of<pool_type<aux::add_lvalue_reference_t<aux::remove_cref_t<T>>>, TPool>::value)>
+T &get(TPool &p) {
+  return static_cast<pool_type<aux::remove_cref_t<T>> &>(p).value;
+}
+
+template <class T, class TPool,
+          __BOOST_SML_REQUIRES(aux::is_base_of<pool_type<aux::add_lvalue_reference_t<aux::remove_cref_t<T>>>, TPool>::value)>
 const T &cget(const TPool &p) {
-  return static_cast<const pool_type<T> &>(p).value;
+  return static_cast<const pool_type<aux::add_lvalue_reference_t<aux::remove_cref_t<T>>> &>(p).value;
+}
+template <class T, class TPool,
+          __BOOST_SML_REQUIRES(!aux::is_base_of<pool_type<aux::add_lvalue_reference_t<aux::remove_cref_t<T>>>, TPool>::value)>
+const T &cget(const TPool &p) {
+  return static_cast<const pool_type<aux::remove_cref_t<T>> &>(p).value;
 }
 template <class... Ts>
 struct pool : pool_type<Ts>... {
@@ -1721,7 +1755,7 @@ class sm {
     aux::get<sm_impl<TSM>>(sub_sms_).start(deps_, sub_sms_);
   }
   template <class... TDeps, __BOOST_SML_REQUIRES((sizeof...(TDeps) > 1) && aux::is_unique_t<TDeps...>::value)>
-  explicit sm(TDeps &&... deps) : deps_{aux::init{}, aux::pool<TDeps...>{deps...}}, sub_sms_{aux::pool<TDeps...>{deps...}} {
+  explicit sm(TDeps &&...deps) : deps_{aux::init{}, aux::pool<TDeps...>{deps...}}, sub_sms_{aux::pool<TDeps...>{deps...}} {
     aux::get<sm_impl<TSM>>(sub_sms_).start(deps_, sub_sms_);
   }
   sm(aux::init, deps_t &deps) : deps_{deps}, sub_sms_{deps} { aux::get<sm_impl<TSM>>(sub_sms_).start(deps_, sub_sms_); }
@@ -2266,7 +2300,8 @@ struct ignore<E, aux::type_list<Ts...>> {
 };
 template <class T, class E, class = void>
 struct get_deps {
-  using type = typename ignore<E, args_t<T, E>>::type;
+  using type = aux::transform_t<aux::add_lvalue_reference_t,
+                                aux::transform_t<aux::remove_cref_t, typename ignore<E, args_t<T, E>>::type>>;
 };
 template <class T, class E>
 using get_deps_t = typename get_deps<T, E>::type;
